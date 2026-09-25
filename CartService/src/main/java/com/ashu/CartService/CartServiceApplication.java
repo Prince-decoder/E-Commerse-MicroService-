@@ -1,4 +1,4 @@
-package com.ashu.Cart.Service;
+package com.ashu.CartService;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

@@ -1,4 +1,4 @@
-package com.ashu.Cart.Service;
+package com.ashu.CartService;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
