@@ -1,4 +1,7 @@
 package com.ashu.ProductService.Model;
 
-public class ProductStatus {
+public enum ProductStatus {
+    AVAILABLE,
+    OUT_OF_STOCK,
+    COMING_SOON,
 }
