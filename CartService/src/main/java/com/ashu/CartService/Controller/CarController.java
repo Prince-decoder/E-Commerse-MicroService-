@@ -26,6 +26,30 @@ public class CarController {
 
         return cartService.addToCart(cartRequest.getProductId(),cartRequest.getUserId(),cartRequest.getQuantity());
     }
+    @GetMapping("user")
+    public ResponseEntity<List<CartDetails>> getAllCartItems(@RequestParam String id)
+    {
+        if(cartService.findByUserId(id).isEmpty())
+        {
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        }
+        else
+            return ResponseEntity.ok(cartService.findByUserId(id));
+    }
+    @GetMapping("name")
+    public ResponseEntity<List<CartDetails>> getAllItemsByName(@RequestParam String name)
+    {
+        if(cartService.findAllByUserName(name).isEmpty())
+        {
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        }
+        else {
+            return ResponseEntity.ok(cartService.findAllByUserName(name).get());
+        }
+//        return cartService.findAllByUserName(name)
+//                .map(ResponseEntity::ok)
+//                .orElse(ResponseEntity.noContent().build());
+    }
 
     @GetMapping("user/{id}")
     public ResponseEntity<List<CartDetails>> getCartById(@PathVariable String id) {
