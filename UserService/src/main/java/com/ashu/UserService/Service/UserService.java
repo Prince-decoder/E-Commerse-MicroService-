@@ -42,6 +42,10 @@ public class UserService {
         return userRepo.findById(Long.valueOf(id));
     }
 
+    public Optional<UserDetails> getUserName(String name){
+        return Optional.of(userRepo.findByName(name));
+    }
+
     public boolean userUpdated(UserRequest userRequest)
     {
         if(userRepo.findByEmail(userRequest.getEmail())==null)
