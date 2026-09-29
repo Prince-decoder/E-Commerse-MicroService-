@@ -58,4 +58,11 @@ public class UserController {
             return ResponseEntity.noContent().build();
         }
     }
+    @GetMapping("username")
+    public ResponseEntity<UserDetails> getUserByUsername(@RequestParam String username)
+    {
+        return userService.getUserName(username)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 }
