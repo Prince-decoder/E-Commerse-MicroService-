@@ -24,6 +24,10 @@ public class ProductService {
         return productRepo.findById(Long.valueOf(id))
                 .map(this::productToResponse);
     }
+    public Optional<ProductDetails> getDetailsById(String id)
+    {
+        return productRepo.findById(Long.valueOf(id));
+    }
 
     public List<ProductDetails> findByKeyword(String keyword)
     {
