@@ -4,7 +4,8 @@ spring:
   application:
     name: "ProductService"
   datasource:
-    url: "jdbc:postgresql://postgres:5432/EcomProduct"
+#    url: "jdbc:postgresql://postgres:5432/EcomProduct"
+    url: "jdbc:postgresql://localhost:5432/EcomProduct"
     username: "postgres"
     password: "Ashu"
     driver-class-name : org.postgresql.Driver
@@ -14,7 +15,7 @@ spring:
     hibernate:
       ddl-auto: update
 
-eureka:
-  client:
-    service-url:
-      defaultZone: http://eureka-server:8761/eureka/
+#eureka:
+#  client:
+#    service-url:
+#      defaultZone: http://eureka-server:8761/eureka/
