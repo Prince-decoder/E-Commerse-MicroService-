@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface OderRepository extends JpaRepository<Order,Long> {
 
+    Order findByUserId(String id);
 }
