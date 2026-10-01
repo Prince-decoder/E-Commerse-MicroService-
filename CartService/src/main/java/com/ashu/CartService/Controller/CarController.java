@@ -51,6 +51,14 @@ public class CarController {
 //                .orElse(ResponseEntity.noContent().build());
     }
 
+    @GetMapping("cartsbyids")
+    public ResponseEntity<CartDetails> getCartByIds(@RequestParam String productid,@RequestParam String userid) {
+
+        return cartService.findByProduct(productid,userid)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @GetMapping("user/{id}")
     public ResponseEntity<List<CartDetails>> getCartById(@PathVariable String id) {
         return new ResponseEntity<>(cartService.findByUserId(id), HttpStatus.OK);
