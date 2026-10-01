@@ -50,6 +50,10 @@ public class CartService {
         }
     }
 
+    public Optional<CartDetails> findByProduct(String productId,String userId) {
+        return cartRepo.findByProductIdAndUserId(Long.parseLong(productId),Long.parseLong(userId));
+    }
+
     public ResponseEntity<String> addToCart(String productId,String userId,Integer quantity){
 
         if(userFeing.getUserId(userId).isEmpty()||productFeing.getDetailsById(productId).isEmpty()||quantity==null){
