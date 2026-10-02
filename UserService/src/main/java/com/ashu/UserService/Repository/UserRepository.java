@@ -1,0 +1,15 @@
+package com.ashu.UserService.Repository;
+
+import com.ashu.UserService.Model.User.UserDetails;
+import org.apache.catalina.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface UserRepository extends JpaRepository<UserDetails,Long> {
+    UserDetails findByEmail(String email);
+
+    UserDetails findByName(String name);
+}

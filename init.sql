@@ -1,0 +1,4 @@
+CREATE DATABASE "EcomUser";
+CREATE DATABASE "EcomCart";
+CREATE DATABASE "EcomOrder";
+CREATE DATABASE "EcomProduct";
