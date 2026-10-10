@@ -17,6 +17,14 @@ A production-ready, fully containerized **E-Commerce Backend** built with a **Sp
   - [CartService](#4-cartservice)
   - [OrderService](#5-orderservice)
 - [Inter-Service Communication](#inter-service-communication)
+- [Security](#-security)
+  - [Spring Security Integration](#spring-security-integration)
+  - [Password Encoding – BCrypt](#password-encoding--bcrypt)
+  - [Custom UserDetailsService](#custom-userdetailsservice)
+  - [Custom UserDetails Wrapper](#custom-userdetails-wrapper)
+  - [Security Filter Chain](#security-filter-chain)
+  - [CORS Configuration](#cors-configuration)
+  - [Endpoint Authorization Rules](#endpoint-authorization-rules)
 - [Database Design](#database-design)
 - [Docker & Deployment](#docker--deployment)
 - [Project Structure](#project-structure)
@@ -68,6 +76,8 @@ A production-ready, fully containerized **E-Commerce Backend** built with a **Sp
 | Inter-Service RPC   | Spring Cloud OpenFeign   |
 | Persistence         | Spring Data JPA + Hibernate |
 | Database            | PostgreSQL 16            |
+| Security            | Spring Security 6 + BCrypt |
+| Authentication      | HTTP Basic Auth + Form Login |
 | Build Tool          | Apache Maven             |
 | Containerization    | Docker + Docker Compose  |
 | Boilerplate         | Lombok                   |
@@ -113,7 +123,7 @@ Manages all user-related operations including registration, profile management, 
 | `id`        | `Long`          | Auto-generated primary key       |
 | `name`      | `String`        | Concatenated first+mid+last name |
 | `email`     | `String`        | Used for update lookups          |
-| `password`  | `String`        | Stored as plain text             |
+| `password`  | `String`        | BCrypt-hashed (strength 12) before persistence |
 | `role`      | `UserAuthority` | Default: `CUSTOMER`              |
 | `address`   | `Address`       | OneToOne, cascades all ops       |
 | `createdAt` | `LocalDateTime` | Auto-set on insert               |
@@ -325,6 +335,225 @@ All services communicate synchronously over HTTP using **Spring Cloud OpenFeign*
 
 ---
 
+## 🔐 Security
+
+Security is implemented **exclusively in UserService** using **Spring Security 6**. All protected endpoints require the client to authenticate via HTTP Basic credentials (username + BCrypt-hashed password). The security layer consists of four cooperating components:
+
+```
+  Incoming Request
+        │
+        ▼
+┌───────────────────┐
+│  SecurityFilter   │  ← Spring Security Filter Chain
+│      Chain        │    CORS → CSRF disabled → AuthZ → Auth
+└────────┬──────────┘
+         │  authenticated?
+         ▼
+┌───────────────────┐
+│ DaoAuthentication │  ← AuthenticationProvider
+│     Provider      │    (uses ImpUserDetailService + BCrypt)
+└────────┬──────────┘
+         │  loadUserByUsername()
+         ▼
+┌───────────────────┐
+│ ImpUserDetail     │  ← UserDetailsService impl
+│    Service        │    (queries UserRepository)
+└────────┬──────────┘
+         │  wraps entity into
+         ▼
+┌───────────────────┐
+│  ImpUserDetails   │  ← UserDetails impl
+│  (Spring wrapper) │    exposes username, password, authorities
+└───────────────────┘
+```
+
+---
+
+### Spring Security Integration
+
+The `Security` package inside **UserService** contains three classes:
+
+| Class                  | Type            | Role                                                         |
+|------------------------|-----------------|--------------------------------------------------------------|
+| `SecurityConfiguration`| `@Configuration`| Defines beans: filter chain, auth provider, CORS config      |
+| `ImpUserDetailService` | `@Service`      | Implements `UserDetailsService` — loads user from DB by name |
+| `ImpUserDetails`       | Plain class     | Implements `UserDetails` — wraps `UserDetails` JPA entity    |
+
+---
+
+### Password Encoding – BCrypt
+
+Passwords are **no longer stored as plain text**. When a user registers, the password field is hashed using **BCrypt with strength 12** before being persisted to the database.
+
+The `BCryptPasswordEncoder` is wired into the `DaoAuthenticationProvider` inside `SecurityConfiguration`:
+
+```java
+@Bean
+public AuthenticationProvider authenticationProvider() {
+    DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+    provider.setPasswordEncoder(new BCryptPasswordEncoder(12)); // strength = 12 rounds
+    return provider;
+}
+```
+
+**Why strength 12?**  
+BCrypt's cost factor is exponential — strength 12 means 2¹² = 4096 iterations per hash, making brute-force and rainbow-table attacks computationally infeasible while remaining fast enough for typical login throughput.
+
+> **Note:** The `UserService.addUser()` method must encode the raw password via `BCryptPasswordEncoder.encode()` before calling `userRepo.save()`. Ensure the same encoder bean is used at registration time.
+
+---
+
+### Custom UserDetailsService
+
+**File:** [`ImpUserDetailService.java`](UserService/src/main/java/com/ashu/UserService/Security/ImpUserDetailService.java)
+
+Spring Security needs a way to load a user from your data store. This class implements the `UserDetailsService` interface and bridges the gap between Spring Security and the JPA `UserRepository`:
+
+```java
+@Service
+public class ImpUserDetailService implements UserDetailsService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        com.ashu.UserService.Model.User.UserDetails user = userRepository.findByName(username);
+        if (user == null) {
+            throw new UsernameNotFoundException("user not found");
+        }
+        return new ImpUserDetails(user); // wrap the JPA entity
+    }
+}
+```
+
+**Flow:**
+1. Spring Security calls `loadUserByUsername(username)` during authentication.
+2. The method queries `UserRepository.findByName(username)` against the `EcomUser` PostgreSQL database.
+3. If no user is found, a `UsernameNotFoundException` is thrown — Spring Security translates this into a `401 Unauthorized` response.
+4. If found, the JPA entity is wrapped in `ImpUserDetails` and returned to the authentication provider.
+
+---
+
+### Custom UserDetails Wrapper
+
+**File:** [`ImpUserDetails.java`](UserService/src/main/java/com/ashu/UserService/Security/ImpUserDetails.java)
+
+Spring Security's `UserDetails` interface requires a specific contract. `ImpUserDetails` wraps the JPA `UserDetails` entity and fulfils this contract:
+
+```java
+public class ImpUserDetails implements UserDetails {
+
+    private com.ashu.UserService.Model.User.UserDetails user;
+
+    public ImpUserDetails(com.ashu.UserService.Model.User.UserDetails user) {
+        this.user = user;
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(); // roles/authorities (expandable in future)
+    }
+
+    @Override
+    public String getPassword() {
+        return user.getPassword(); // BCrypt-hashed value from DB
+    }
+
+    @Override
+    public String getUsername() {
+        return user.getName(); // username = stored name field
+    }
+}
+```
+
+> **Extensibility:** The `getAuthorities()` currently returns an empty list. In future iterations, this can return `[new SimpleGrantedAuthority(user.getRole().name())]` to enable role-based access control (RBAC) using the existing `UserAuthority` enum (`CUSTOMER`, `ADMIN`, etc.).
+
+---
+
+### Security Filter Chain
+
+**File:** [`SecurityConfiguration.java`](UserService/src/main/java/com/ashu/UserService/Security/SecurityConfiguration.java)
+
+The `SecurityFilterChain` bean defines the entire HTTP security policy for UserService:
+
+```java
+@Bean
+public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .cors(cors -> cors.configurationSource(corsConfigurationSource()))   // 1. CORS
+        .csrf(custom -> custom.disable())                                    // 2. CSRF disabled
+        .authorizeHttpRequests(request -> request
+            .requestMatchers("/api/add").permitAll()                         // 3. Public: registration
+            .anyRequest().authenticated())                                   // 4. All else: auth required
+        .formLogin(Customizer.withDefaults())                                // 5. Form login enabled
+        .httpBasic(Customizer.withDefaults());                               // 6. HTTP Basic enabled
+    return http.build();
+}
+```
+
+| Step | Config                  | Effect                                                           |
+|------|-------------------------|------------------------------------------------------------------|
+| 1    | `.cors(...)`            | Applies the custom CORS policy bean                              |
+| 2    | `.csrf().disable()`     | CSRF protection disabled (stateless REST API — no sessions)      |
+| 3    | `.permitAll()` on `/api/add` | Registration endpoint is public — no auth needed            |
+| 4    | `.anyRequest().authenticated()` | Every other endpoint requires valid credentials         |
+| 5    | `.formLogin()`          | Spring's default login form enabled (useful for browser testing) |
+| 6    | `.httpBasic()`          | HTTP Basic Auth header accepted (`Authorization: Basic <b64>`)   |
+
+---
+
+### CORS Configuration
+
+The `CorsConfigurationSource` bean controls which frontend origins can make cross-origin requests to UserService:
+
+```java
+@Bean
+public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration config = new CorsConfiguration();
+    config.setAllowedOriginPatterns(List.of(
+        "http://localhost:3000",   // Next.js / React dev server
+        "http://localhost:3001"    // alternate frontend port
+    ));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    config.setAllowedHeaders(List.of("*"));             // all headers (incl. Authorization)
+    config.setExposedHeaders(List.of("Authorization")); // expose auth header to JS
+    config.setAllowCredentials(true);                   // allow cookies / Basic Auth
+    config.setMaxAge(3600L);                            // preflight cache: 1 hour
+
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/**", config);    // applies to all paths
+    return source;
+}
+```
+
+| Setting                | Value                              | Purpose                                       |
+|------------------------|------------------------------------|-----------------------------------------------|
+| `AllowedOriginPatterns`| `localhost:3000`, `localhost:3001` | Frontend dev servers allowed                  |
+| `AllowedMethods`       | GET, POST, PUT, DELETE, OPTIONS    | Standard REST verbs + preflight               |
+| `AllowedHeaders`       | `*`                                | Permits the `Authorization` header            |
+| `ExposedHeaders`       | `Authorization`                    | JS can read the auth header in responses      |
+| `AllowCredentials`     | `true`                             | Required for HTTP Basic with browser fetch    |
+| `MaxAge`               | `3600`                             | Browser caches preflight for 1 hour           |
+
+---
+
+### Endpoint Authorization Rules
+
+The table below summarises the access policy for every UserService endpoint:
+
+| Method | Endpoint        | Auth Required | Notes                                   |
+|--------|-----------------|---------------|-----------------------------------------|
+| `POST` | `/api/add`      | ❌ No          | Public — anyone can register            |
+| `GET`  | `/api/users`    | ✅ Yes         | Requires valid HTTP Basic credentials   |
+| `GET`  | `/api/find`     | ✅ Yes         | Requires valid HTTP Basic credentials   |
+| `POST` | `/api/update`   | ✅ Yes         | Requires valid HTTP Basic credentials   |
+| `GET`  | `/api/username` | ✅ Yes         | Requires valid HTTP Basic credentials   |
+
+> **Inter-service calls:** Feign clients in `CartService` that call UserService endpoints (e.g., `GET /api/find`, `GET /api/username`) must include an `Authorization: Basic <base64(user:pass)>` header, or a service-account credential must be configured in the Feign client.
+
+---
+
 ## Database Design
 
 The `init.sql` script is automatically executed when the PostgreSQL container first starts, creating all four isolated databases:
@@ -418,6 +647,9 @@ MicroService(Ecommerse Website Backend)/
 │       ├── Model/User/UserDetails.java
 │       ├── Model/User/UserAuthority.java
 │       ├── Model/Address/Address.java
+│       ├── Security/SecurityConfiguration.java
+│       ├── Security/ImpUserDetailService.java
+│       ├── Security/ImpUserDetails.java
 │       └── Config/WebConfig.java
 │
 ├── ProductService/              # Product Catalog (Port: 8082)
@@ -681,7 +913,10 @@ ServerService → UserService → ProductService → CartService → OrderServic
 
 ## Notes
 
-- **Passwords** are currently stored as plain text. For production, integrate Spring Security with `BCryptPasswordEncoder`.
+- **Passwords** are now hashed with **BCrypt (strength 12)** via Spring Security. Plain-text storage has been removed. Ensure `BCryptPasswordEncoder.encode()` is called in `UserService.addUser()` before saving.
+- **Spring Security** is active only on **UserService**. Other services (`CartService`, `OrderService`, etc.) are currently unsecured — consider adding a shared API Gateway (e.g., Spring Cloud Gateway) with JWT validation for full-stack security in production.
+- **Feign clients** calling secured UserService endpoints must supply valid Basic Auth credentials. Configure a service-account user or switch to JWT bearer tokens for inter-service calls.
 - Each service has a `WebConfig.java` for CORS configuration, enabling the frontend to connect during development.
 - All Dockerfiles rely on pre-built `.jar` files. Always run `mvn package -DskipTests` before `docker-compose up`.
 - Each `application.properties` has Docker URLs **commented out** by default — uncomment them when deploying via Docker Compose.
+- The `UserAuthority` enum (`CUSTOMER`, `ADMIN`) is already in place — wiring it into `ImpUserDetails.getAuthorities()` will enable full role-based access control (RBAC) with `@PreAuthorize` or `hasRole()` rules.
