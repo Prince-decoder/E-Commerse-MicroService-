@@ -1,8 +1,9 @@
 name: Real Dev CI Demo (Echo Only)
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch
+#  push:
+#  pull_request:
 
 jobs:
   ci-pipeline:

@@ -1,0 +1,17 @@
+name: contextLearning
+on:
+  push
+jobs:
+  Demo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: different_context
+        run: |
+          echo "repository name = ${{github.repository}}"
+          echo "work space name = ${{github.workspace}}"
+          echo "owner name = ${{github.actor}}"
+          echo "event name = ${{github.event_name}}"
+          echo "running on = ${{runner.os}}"
+          echo "branch name =${{github.ref}}"
+          echo "Status = ${{job.status}}"
